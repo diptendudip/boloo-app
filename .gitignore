@@ -10,12 +10,25 @@ web/.next/
 backend/__pycache__/
 backend/*.pyc
 
-# Environment variables
+# Environment files - NEVER commit these
+*.env
 .env
-.env.local
-.env.production
-.env.development
-backend/.env
+.env.*
+!.env.example
+!.env.template
+**/.env
+**/.env.*
+backend/.env*
+mobile/.env*
+web/.env*
+
+# Security - API keys and secrets
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets.json
 
 # OS files
 .DS_Store
