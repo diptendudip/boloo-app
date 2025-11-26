@@ -1044,13 +1044,22 @@ async def process_chat_turn_v2(
         db.refresh(conversation)
 
         # Create flat fields for backward compatibility
+        state = result.updated_state
         extracted_data_flat = {
-            "issue_description": result.updated_state.report.problem.description_raw,
+            "issue_description": state.report.problem.description_raw,
             "location": (
-                result.updated_state.report.location.village or
-                result.updated_state.report.location.district
+                state.report.location.village or
+                state.report.location.district
             ),
+            "location_village": state.report.location.village,
+            "location_district": state.report.location.district,
+            "location_block": state.report.location.block,
+            "problem_category": state.report.problem.category.value if state.report.problem.category else None,
+            "reporter_name": state.report.reporter.name,
+            "reporter_phone": state.report.reporter.phone,
         }
+        # Remove None values
+        extracted_data_flat = {k: v for k, v in extracted_data_flat.items() if v is not None}
 
         # MERGE with existing extracted_data (which contains _multi_agent_state)
         # This preserves the multi-agent state across turns

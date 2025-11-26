@@ -262,6 +262,11 @@ class MultiAgentOrchestrator:
             conversation_complete = False
             final_report_hi = None
 
+            # CONFIRM_AND_SUBMIT means all required info collected, user can submit
+            if next_directive["mode"] == AgentMode.CONFIRM_AND_SUBMIT:
+                logger.info("📋 Agent C says CONFIRM_AND_SUBMIT - user can submit when ready")
+                conversation_complete = True  # Allow submission
+
             if next_directive["mode"] == AgentMode.SUBMIT_NOW:
                 logger.info("📄 Agent C says SUBMIT_NOW - calling Agent A for final report")
 
