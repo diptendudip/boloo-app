@@ -47,8 +47,22 @@ from app.utils.location_confirmation import (
     has_meaningful_location,
     extract_location_from_user_profile
 )
+# Multi-Agent Orchestrator (3-agent system for natural conversation)
+from app.services.multi_agent_orchestrator import (
+    get_multi_agent_orchestrator,
+    OrchestratorResult
+)
+from app.models.conversation_state import (
+    ConversationState,
+    initialize_conversation_state,
+    Report
+)
 
 logger = logging.getLogger(__name__)
+
+# Feature flag for multi-agent system - ENABLED BY DEFAULT for natural conversations
+# Set USE_MULTI_AGENT=0 to revert to old Azure OpenAI system
+USE_MULTI_AGENT = os.getenv("USE_MULTI_AGENT", "1") == "1"
 
 router = APIRouter(prefix="/v1/chat", tags=["chat"])
 
@@ -661,6 +675,450 @@ If the issue is at a different location (like a different area in the village), 
         )
 
 
+# ============================================================================
+# Multi-Agent System Integration (3-agent orchestrator)
+# ============================================================================
+
+class MultiAgentOrchestratorError(Exception):
+    """Exception raised when multi-agent orchestration fails."""
+    pass
+
+
+def _get_or_create_conversation_state(
+    conversation_id: str,
+    db: Session
+) -> ConversationState:
+    """
+    Get existing ConversationState from database or create new one.
+
+    State is stored in conversations.extracted_data as JSON with special prefix.
+
+    Args:
+        conversation_id: Conversation UUID
+        db: Database session
+
+    Returns:
+        ConversationState instance
+    """
+    from uuid import UUID
+    from app.services.ai_coach_conversation_service import get_ai_coach_conversation_service
+
+    conv_uuid = UUID(conversation_id)
+    conversation_service = get_ai_coach_conversation_service(db)
+    conversation = conversation_service.get_conversation(conv_uuid)
+
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversation {conversation_id} not found"
+        )
+
+    # Check if multi-agent state exists in extracted_data
+    extracted_data = conversation.extracted_data or {}
+
+    if "_multi_agent_state" in extracted_data and extracted_data["_multi_agent_state"]:
+        # Restore existing state from JSON
+        try:
+            state_dict = extracted_data["_multi_agent_state"]
+            state = ConversationState(**state_dict)
+            logger.info(f"[MultiAgent] Restored state for conversation {conversation_id} (turn {state.turn_count})")
+            return state
+        except Exception as e:
+            logger.error(f"[MultiAgent] Failed to restore state: {e}", exc_info=True)
+            # Fall through to create new state
+
+    # Create new state
+    logger.info(f"[MultiAgent] Creating new state for conversation {conversation_id}")
+    state = initialize_conversation_state(report_id=conversation_id)
+
+    return state
+
+
+def _save_conversation_state(
+    conversation_id: str,
+    state: ConversationState,
+    db: Session
+) -> None:
+    """
+    Save ConversationState to database.
+
+    Stores state in conversations.extracted_data as JSON with special prefix.
+
+    Args:
+        conversation_id: Conversation UUID
+        state: ConversationState to save
+        db: Database session
+    """
+    from uuid import UUID
+    from app.services.ai_coach_conversation_service import get_ai_coach_conversation_service
+
+    conv_uuid = UUID(conversation_id)
+    conversation_service = get_ai_coach_conversation_service(db)
+    conversation = conversation_service.get_conversation(conv_uuid)
+
+    if not conversation:
+        logger.error(f"[MultiAgent] Conversation {conversation_id} not found for state save")
+        return
+
+    # Serialize state to dict
+    state_dict = state.model_dump()
+
+    # Store in extracted_data with special prefix
+    extracted_data = conversation.extracted_data or {}
+    extracted_data["_multi_agent_state"] = state_dict
+
+    conversation.extracted_data = extracted_data
+    db.commit()
+
+    logger.info(f"[MultiAgent] Saved state for conversation {conversation_id} (turn {state.turn_count})")
+
+
+def _convert_orchestrator_result_to_response(
+    result: OrchestratorResult,
+    conversation_id: str,
+    user_message: str,
+    language_detected: str
+) -> ChatTurnResponse:
+    """
+    Convert OrchestratorResult to ChatTurnResponse.
+
+    Args:
+        result: Result from orchestrator
+        conversation_id: Conversation UUID
+        user_message: User's message
+        language_detected: Detected language
+
+    Returns:
+        ChatTurnResponse with proper fields populated
+    """
+    state = result.updated_state
+
+    # Extract data from report for extracted_data field
+    extracted_data = {
+        "issue_description": state.report.problem.description_raw,
+        "location": state.report.location.village or state.report.location.district,
+        "location_village": state.report.location.village,
+        "location_district": state.report.location.district,
+        "location_panchayat": state.report.location.panchayat,
+        "location_block": state.report.location.block,
+        "reporter_name": state.report.reporter.name,
+        "phone": state.report.reporter.phone,
+        "problem_category": state.report.problem.category,
+        "problem_duration": state.report.problem.duration_text,
+        "attempts_made": state.report.attempts.any_attempt_made,
+        "attempts_details": state.report.attempts.attempts_text,
+    }
+
+    # Remove None values
+    extracted_data = {k: v for k, v in extracted_data.items() if v is not None}
+
+    # Determine collected/missing fields
+    collected_fields = [
+        slot_id for slot_id, status in state.slot_statuses.items()
+        if status.value_present
+    ]
+
+    missing_fields = [
+        {
+            "field": slot_id,
+            "importance": status.priority,
+            "prompt_hi": f"कृपया {slot_id} बताएं",
+            "prompt_en": f"Please provide {slot_id}"
+        }
+        for slot_id, status in state.slot_statuses.items()
+        if not status.value_present and status.priority == "core"
+    ]
+
+    # Calculate completeness score
+    total_core_slots = sum(
+        1 for slot_id, status in state.slot_statuses.items()
+        if status.priority == "core"
+    )
+    filled_core_slots = sum(
+        1 for slot_id, status in state.slot_statuses.items()
+        if status.priority == "core" and status.value_present
+    )
+    completeness_score = filled_core_slots / total_core_slots if total_core_slots > 0 else 0.0
+
+    # AI response (same for Hindi and English since orchestrator returns Hindi)
+    ai_response_hi = result.bot_response
+    ai_response_en = result.bot_response  # TODO: Could translate to English if needed
+
+    return ChatTurnResponse(
+        success=True,
+        conversation_id=conversation_id,
+        turn_number=state.turn_count,
+        user_message=user_message,
+        language_detected=language_detected,
+        ai_response_hi=ai_response_hi,
+        ai_response_en=ai_response_en,
+        completeness_score=completeness_score,
+        is_complete=result.conversation_complete,
+        collected_fields=collected_fields,
+        missing_fields=missing_fields,
+        extracted_data=extracted_data,
+        should_continue=not result.conversation_complete,
+        ready_for_submission=result.conversation_complete,
+        show_submit_button=result.conversation_complete,
+        show_skip_button=False,  # Multi-agent system handles this internally
+        preview_card=None  # TODO: Could generate from extracted_data if needed
+    )
+
+
+@router.post("/turn-v2", response_model=ChatTurnResponse)
+async def process_chat_turn_v2(
+    conversation_id: str = Form(...),
+    user_id: str = Form(...),
+    text_message: Optional[str] = Form(default=None),
+    audio: Optional[UploadFile] = File(default=None),
+    language: str = Form(default="hi-IN"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(get_current_user_or_dev),
+    db: Session = Depends(get_db)
+):
+    """
+    Process chat turn using 3-agent multi-agent orchestrator.
+
+    This endpoint uses Agent B (conversational), Agent C (planner), and Agent A (formatter)
+    for natural, human-like conversations.
+
+    Flow:
+    1. Get/restore ConversationState from database
+    2. Handle audio transcription if needed
+    3. Call orchestrator.process_user_turn(user_message, state)
+    4. Save updated state to database
+    5. Return natural conversational response
+
+    Args:
+        conversation_id: Conversation UUID
+        user_id: User UUID
+        text_message: Optional text message (if user typed)
+        audio: Optional audio file (if user used voice)
+        language: Language code
+        background_tasks: FastAPI background tasks
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        ChatTurnResponse with natural conversation from 3-agent system
+    """
+    temp_file_path = None
+
+    try:
+        user_uuid = UUID(user_id)
+        conv_uuid = UUID(conversation_id)
+
+        # Validate inputs
+        if not text_message and not audio:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Either text_message or audio must be provided"
+            )
+
+        # Get conversation and verify ownership
+        conversation_service = get_ai_coach_conversation_service(db)
+        conversation = conversation_service.get_conversation(conv_uuid)
+
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Conversation {conversation_id} not found"
+            )
+
+        # Security: Verify ownership
+        if str(conversation.user_id) != str(current_user.id):
+            logger.warning(
+                f"[Security] User {current_user.id} attempted to access "
+                f"conversation {conversation_id} owned by {conversation.user_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this conversation"
+            )
+
+        # Handle audio transcription if needed
+        if audio:
+            # DoS Prevention: Check audio file size
+            if hasattr(audio, "size") and audio.size and audio.size > MAX_AUDIO_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail={
+                        "error": "AUDIO_TOO_LARGE",
+                        "message_hi": f"ऑडियो फ़ाइल बहुत बड़ी है। अधिकतम {MAX_AUDIO_BYTES // (1024*1024)}MB की अनुमति है।",
+                        "message_en": f"Audio file too large. Maximum {MAX_AUDIO_BYTES // (1024*1024)}MB allowed."
+                    }
+                )
+
+            # Validate file type
+            allowed_extensions = [".m4a", ".wav", ".mp3", ".ogg", ".webm"]
+            file_ext = os.path.splitext(audio.filename)[1].lower()
+
+            if file_ext not in allowed_extensions:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported audio format: {file_ext}"
+                )
+
+            # Save and transcribe audio
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+                temp_file_path = temp_file.name
+                content = await audio.read()
+                temp_file.write(content)
+
+            # Register background cleanup
+            background_tasks.add_task(
+                lambda p=temp_file_path: os.unlink(p) if os.path.exists(p) else None
+            )
+
+            logger.info(f"[Chat-v2] Transcribing audio for conversation {conversation_id}")
+            transcription_result = await transcription_service.transcribe_audio(
+                audio_file_path=temp_file_path,
+                language=language,
+                enable_auto_language_detection=True
+            )
+
+            if not transcription_result["success"]:
+                error_detail = transcription_result.get("error", "Transcription failed")
+                logger.warning(f"[Chat-v2] Transcription failed: {error_detail}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": error_detail,
+                        "message_hi": "आवाज़ में कोई बोल नहीं सुनाई दिया। कृपया फिर से बोलें।",
+                        "message_en": "No speech detected in audio. Please try again."
+                    }
+                )
+
+            user_message = transcription_result["transcript"]
+            language_detected = transcription_result.get("language_detected", "hi")
+        else:
+            user_message = text_message
+            language_detected = "hi" if language.startswith("hi") else "en"
+
+        logger.info(
+            f"[Chat-v2] Processing turn for conversation {conversation_id}: "
+            f"{user_message[:100]}"
+        )
+
+        # ================================================================
+        # STEP 1: Get or create ConversationState
+        # ================================================================
+
+        conversation_state = _get_or_create_conversation_state(conversation_id, db)
+
+        # ================================================================
+        # STEP 2: Call multi-agent orchestrator
+        # ================================================================
+
+        logger.info("[Chat-v2] 🎭 Calling multi-agent orchestrator")
+
+        try:
+            orchestrator = get_multi_agent_orchestrator()
+            result = orchestrator.process_user_turn(
+                user_message=user_message,
+                conversation_state=conversation_state
+            )
+
+            logger.info(
+                f"[Chat-v2] ✅ Orchestrator completed: "
+                f"agents={result.agents_called}, tokens={result.tokens_used}, "
+                f"complete={result.conversation_complete}"
+            )
+
+        except Exception as e:
+            logger.error(f"[Chat-v2] Orchestrator failed: {e}", exc_info=True)
+            raise MultiAgentOrchestratorError(
+                f"Multi-agent orchestration failed: {str(e)}"
+            )
+
+        # ================================================================
+        # STEP 3: Save updated state
+        # ================================================================
+
+        _save_conversation_state(conversation_id, result.updated_state, db)
+
+        # Also update conversation completeness in standard format
+        # (for backward compatibility with existing views)
+        # CRITICAL FIX: MERGE extracted_data to preserve _multi_agent_state
+        # First, refresh conversation to get the state we just saved
+        db.refresh(conversation)
+
+        # Create flat fields for backward compatibility
+        extracted_data_flat = {
+            "issue_description": result.updated_state.report.problem.description_raw,
+            "location": (
+                result.updated_state.report.location.village or
+                result.updated_state.report.location.district
+            ),
+        }
+
+        # MERGE with existing extracted_data (which contains _multi_agent_state)
+        # This preserves the multi-agent state across turns
+        existing_extracted_data = conversation.extracted_data or {}
+        merged_extracted_data = {**existing_extracted_data, **extracted_data_flat}
+
+        logger.info(f"[Chat-v2] Merging extracted_data, keys: {list(merged_extracted_data.keys())}")
+
+        conversation_service.update_completeness(
+            conversation_id=conv_uuid,
+            completeness_score=1.0 if result.conversation_complete else 0.5,
+            collected_fields=[k for k, v in extracted_data_flat.items() if v],
+            missing_fields=[],
+            extracted_data=merged_extracted_data  # Use MERGED data to preserve state
+        )
+
+        # ================================================================
+        # STEP 4: Add turn to conversation history
+        # ================================================================
+
+        turn = conversation_service.add_turn(
+            conversation_id=conv_uuid,
+            transcript_text=user_message,
+            audio_url=None,
+            language_detected=language_detected,
+            ai_response=result.bot_response,
+            ai_question_asked=result.bot_response if not result.conversation_complete else None,
+            fields_extracted={}
+        )
+
+        logger.info(f"[Chat-v2] Turn {turn.turn_number} complete for conversation {conversation_id}")
+
+        # ================================================================
+        # STEP 5: Convert result to response
+        # ================================================================
+
+        response = _convert_orchestrator_result_to_response(
+            result=result,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            language_detected=language_detected
+        )
+
+        return response
+
+    except HTTPException:
+        raise
+    except MultiAgentOrchestratorError as e:
+        logger.error(f"[Chat-v2] Multi-agent error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Multi-agent orchestration failed: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"[Chat-v2] Error processing chat turn: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process chat turn: {str(e)}"
+        )
+    finally:
+        # Clean up temp file
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file: {e}")
+
+
 @router.post("/turn", response_model=ChatTurnResponse)
 async def process_chat_turn(
     conversation_id: str = Form(...),
@@ -692,6 +1150,27 @@ async def process_chat_turn(
     Returns:
         ChatTurnResponse with AI response and completeness analysis
     """
+    # ================================================================
+    # MULTI-AGENT DELEGATION: Use 3-agent system for natural conversations
+    # ================================================================
+    if USE_MULTI_AGENT:
+        logger.info(f"[Chat] 🎭 Delegating to multi-agent system (USE_MULTI_AGENT=1)")
+        return await process_chat_turn_v2(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            text_message=text_message,
+            audio=audio,
+            language=language,
+            background_tasks=background_tasks,
+            current_user=current_user,
+            db=db
+        )
+
+    # ================================================================
+    # LEGACY SYSTEM: Old Azure OpenAI-based system (USE_MULTI_AGENT=0)
+    # ================================================================
+    logger.info(f"[Chat] Using legacy Azure OpenAI system (USE_MULTI_AGENT=0)")
+
     temp_file_path = None
 
     try:
