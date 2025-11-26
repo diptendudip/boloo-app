@@ -53,3 +53,33 @@ coverage/
 *.tmp
 *.temp
 /tmp/
+
+# Large data files (LGD database)
+backend/data/lgd/*.csv
+backend/data/lgd/*.xls
+backend/data/lgd/*.7z
+backend/data/lgd/*.xlsx
+
+# Mobile build artifacts
+mobile/.expo/
+mobile/ios/
+mobile/android/
+mobile/node_modules/
+
+# Recovery and claude-flow state
+.recovery/
+.claude-flow/
+web/.claude-flow/
+
+# Zip files
+*.zip
+
+# Issue screenshots (optional - remove this line if you want them in repo)
+# issue screenshots/
+
+# Scripts with Azure credentials (NEVER commit)
+backend/scripts/restore-azure-settings.sh
+backend/scripts/verify-azure-settings.sh
+backend/scripts/verify-keys.sh
+backend/scripts/rotation-summary.json
+docs/AZURE_AI_INTEGRATION.md

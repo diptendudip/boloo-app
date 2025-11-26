@@ -1,0 +1,1 @@
+export { useFonts } from './useFonts';

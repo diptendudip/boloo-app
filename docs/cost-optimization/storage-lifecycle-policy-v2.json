@@ -1,0 +1,68 @@
+{
+  "rules": [
+    {
+      "enabled": true,
+      "name": "delete-old-logs",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "baseBlob": {
+            "delete": {
+              "daysAfterModificationGreaterThan": 90
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"
+          ],
+          "prefixMatch": [
+            "logs/"
+          ]
+        }
+      }
+    },
+    {
+      "enabled": true,
+      "name": "delete-old-temp-files",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "baseBlob": {
+            "delete": {
+              "daysAfterModificationGreaterThan": 30
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"
+          ],
+          "prefixMatch": [
+            "temp/",
+            "tmp/"
+          ]
+        }
+      }
+    },
+    {
+      "enabled": true,
+      "name": "delete-old-snapshots",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "snapshot": {
+            "delete": {
+              "daysAfterCreationGreaterThan": 30
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,109 @@
+════════════════════════════════════════════════════════════════════════════
+🐳 BOLOO BACKEND - DOCKER QUICK REFERENCE
+════════════════════════════════════════════════════════════════════════════
+
+📍 LOCATION: /Users/diptendu/boloo app/boloo-app/backend/
+
+════════════════════════════════════════════════════════════════════════════
+🚀 QUICK DEPLOYMENT (3 STEPS)
+════════════════════════════════════════════════════════════════════════════
+
+1️⃣  BUILD
+    ./scripts/build-docker.sh
+
+2️⃣  TEST
+    ./scripts/test-docker.sh
+
+3️⃣  PUSH
+    # First time: Authenticate
+    export CR_PAT=ghp_YOUR_GITHUB_PERSONAL_ACCESS_TOKEN
+    echo $CR_PAT | docker login ghcr.io -u diptendudip --password-stdin
+
+    # Push
+    ./scripts/push-docker.sh
+
+════════════════════════════════════════════════════════════════════════════
+🔄 DEPLOY TO AZURE
+════════════════════════════════════════════════════════════════════════════
+
+az webapp config container set \
+  --name boloo-backend \
+  --resource-group boloo-rg \
+  --docker-custom-image-name ghcr.io/diptendudip/boloo-backend:latest \
+  --docker-registry-server-url https://ghcr.io \
+  --docker-registry-server-user diptendudip \
+  --docker-registry-server-password $CR_PAT
+
+az webapp restart --name boloo-backend --resource-group boloo-rg
+az webapp log tail --name boloo-backend --resource-group boloo-rg
+
+════════════════════════════════════════════════════════════════════════════
+✅ VERIFY DEPLOYMENT
+════════════════════════════════════════════════════════════════════════════
+
+curl https://boloo-backend.azurewebsites.net/health
+curl https://boloo-backend.azurewebsites.net/docs
+
+════════════════════════════════════════════════════════════════════════════
+🐛 TROUBLESHOOTING
+════════════════════════════════════════════════════════════════════════════
+
+BUILD FAILS?
+  docker info                    # Check Docker is running
+
+TEST FAILS?
+  ls -la .env                    # Ensure .env exists
+  docker logs boloo-backend-test # Check logs
+
+PUSH FAILS?
+  echo $CR_PAT | docker login ghcr.io -u diptendudip --password-stdin
+
+AZURE SHOWS OLD VERSION?
+  az webapp restart --name boloo-backend --resource-group boloo-rg
+
+════════════════════════════════════════════════════════════════════════════
+📚 DOCUMENTATION
+════════════════════════════════════════════════════════════════════════════
+
+Full Guide:    docs/DOCKER_DEPLOYMENT.md
+Quick Deploy:  docs/QUICK_DEPLOY.md
+Summary:       docs/DOCKER_REBUILD_SUMMARY.md
+
+════════════════════════════════════════════════════════════════════════════
+🔑 KEY FILES
+════════════════════════════════════════════════════════════════════════════
+
+Dockerfile:                     Production-ready multi-stage build
+.env:                          Environment variables (local)
+scripts/build-docker.sh:       Build automation
+scripts/test-docker.sh:        Local testing
+scripts/push-docker.sh:        Push to ghcr.io
+
+════════════════════════════════════════════════════════════════════════════
+📦 DOCKER IMAGE
+════════════════════════════════════════════════════════════════════════════
+
+Registry:  ghcr.io/diptendudip/boloo-backend
+Tags:      :latest, :vYYYYMMDD-HHMMSS
+Size:      ~800MB
+Base:      python:3.11-slim
+Workers:   2 (Gunicorn + Uvicorn)
+
+════════════════════════════════════════════════════════════════════════════
+✨ CHAT FIXES INCLUDED
+════════════════════════════════════════════════════════════════════════════
+
+✅ app/utils/location_confirmation.py - bool() wrappers
+✅ app/routers/chat.py - bool() wrappers
+✅ Prevents None propagation in location validation
+
+════════════════════════════════════════════════════════════════════════════
+📞 QUICK HELP
+════════════════════════════════════════════════════════════════════════════
+
+Local Test:   http://localhost:8001/health
+Production:   https://boloo-backend.azurewebsites.net/health
+Logs:         docker logs -f boloo-backend-test
+GitHub PAT:   https://github.com/settings/tokens/new
+
+════════════════════════════════════════════════════════════════════════════

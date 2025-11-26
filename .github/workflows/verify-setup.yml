@@ -1,0 +1,219 @@
+name: Verify CI/CD Setup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-secrets:
+    name: Verify Required Secrets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check Azure secrets
+        run: |
+          echo "Checking required Azure secrets..."
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
+            echo "❌ AZURE_CREDENTIALS is not set"
+            exit 1
+          else
+            echo "✅ AZURE_CREDENTIALS is set"
+          fi
+
+          if [ -z "${{ secrets.AZURE_RESOURCE_GROUP }}" ]; then
+            echo "❌ AZURE_RESOURCE_GROUP is not set"
+            exit 1
+          else
+            echo "✅ AZURE_RESOURCE_GROUP is set"
+          fi
+
+      - name: Check Backend secrets
+        run: |
+          echo "Checking backend secrets..."
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "⚠️ DATABASE_URL is not set"
+          else
+            echo "✅ DATABASE_URL is set"
+          fi
+
+          if [ -z "${{ secrets.SECRET_KEY }}" ]; then
+            echo "⚠️ SECRET_KEY is not set"
+          else
+            echo "✅ SECRET_KEY is set"
+          fi
+
+      - name: Check Web secrets
+        run: |
+          echo "Checking web secrets..."
+          if [ -z "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}" ]; then
+            echo "⚠️ AZURE_STATIC_WEB_APPS_API_TOKEN is not set"
+          else
+            echo "✅ AZURE_STATIC_WEB_APPS_API_TOKEN is set"
+          fi
+
+          if [ -z "${{ secrets.NEXT_PUBLIC_API_URL }}" ]; then
+            echo "⚠️ NEXT_PUBLIC_API_URL is not set"
+          else
+            echo "✅ NEXT_PUBLIC_API_URL is set"
+          fi
+
+      - name: Check Mobile secrets
+        run: |
+          echo "Checking mobile secrets..."
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "⚠️ EXPO_TOKEN is not set"
+          else
+            echo "✅ EXPO_TOKEN is set"
+          fi
+
+      - name: Check Optional secrets
+        run: |
+          echo "Checking optional secrets..."
+          if [ -z "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            echo "ℹ️ SLACK_WEBHOOK_URL is not set (optional)"
+          else
+            echo "✅ SLACK_WEBHOOK_URL is set"
+          fi
+
+          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "ℹ️ SONAR_TOKEN is not set (optional)"
+          else
+            echo "✅ SONAR_TOKEN is set"
+          fi
+
+      - name: Summary
+        run: |
+          echo "================================"
+          echo "Secrets verification completed!"
+          echo "================================"
+          echo ""
+          echo "Next steps:"
+          echo "1. Add any missing required secrets"
+          echo "2. Test individual workflows with manual dispatch"
+          echo "3. Create a test PR to verify CI tests"
+          echo "4. Deploy to staging environment"
+          echo ""
+
+  verify-azure-connection:
+    name: Verify Azure Connection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Verify subscription
+        run: |
+          echo "Logged into Azure successfully!"
+          az account show
+          echo ""
+          echo "Available resource groups:"
+          az group list --output table
+
+      - name: Check App Services
+        run: |
+          echo "Checking for App Services..."
+          az webapp list --output table || echo "No web apps found"
+
+      - name: Azure logout
+        run: az logout
+        if: always()
+
+  verify-expo-connection:
+    name: Verify Expo Connection
+    runs-on: ubuntu-latest
+    if: secrets.EXPO_TOKEN != ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Verify Expo authentication
+        run: |
+          npx expo whoami
+          echo "✅ Expo authentication successful!"
+
+  verify-node-setup:
+    name: Verify Node.js Setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Verify web dependencies
+        working-directory: ./web
+        run: |
+          echo "Installing web dependencies..."
+          npm ci
+          echo "✅ Web dependencies installed successfully"
+
+      - name: Verify mobile dependencies
+        working-directory: ./mobile
+        run: |
+          echo "Installing mobile dependencies..."
+          npm ci
+          echo "✅ Mobile dependencies installed successfully"
+
+  verify-python-setup:
+    name: Verify Python Setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify backend dependencies
+        working-directory: ./backend
+        run: |
+          echo "Installing backend dependencies..."
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          echo "✅ Backend dependencies installed successfully"
+
+  summary:
+    name: Setup Verification Summary
+    runs-on: ubuntu-latest
+    needs: [verify-secrets, verify-azure-connection, verify-expo-connection, verify-node-setup, verify-python-setup]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# CI/CD Setup Verification Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Secrets Verification: ${{ needs.verify-secrets.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Azure Connection: ${{ needs.verify-azure-connection.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Expo Connection: ${{ needs.verify-expo-connection.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Node.js Setup: ${{ needs.verify-node-setup.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Python Setup: ${{ needs.verify-python-setup.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ If all checks passed, your CI/CD is ready!" >> $GITHUB_STEP_SUMMARY
+          echo "2. 📝 Review the README.md in .github/workflows/" >> $GITHUB_STEP_SUMMARY
+          echo "3. 🧪 Test workflows by creating a PR" >> $GITHUB_STEP_SUMMARY
+          echo "4. 🚀 Deploy to staging environment" >> $GITHUB_STEP_SUMMARY
+          echo "5. 🎉 Deploy to production!" >> $GITHUB_STEP_SUMMARY

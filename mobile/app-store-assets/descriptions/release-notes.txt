@@ -1,0 +1,85 @@
+VERSION 1.0.0 - Initial Release
+
+Welcome to Boloo - Citizen Reporting!
+
+NEW FEATURES:
+• Report civic issues with photo evidence
+• Real-time report tracking
+• Multi-language support (English & Hindi)
+• Location-based issue reporting
+• Category-based issue submission
+• User profile and history
+• Push notifications for updates
+
+CATEGORIES AVAILABLE:
+• Potholes and road damage
+• Street lighting
+• Garbage and sanitation
+• Water supply
+• Drainage issues
+• Public infrastructure
+• Illegal dumping
+• And more...
+
+We're excited to help you make a difference in your community!
+
+Questions or feedback? Contact us at support@boloo.com
+
+Thank you for downloading Boloo! 🎉
+
+---
+
+VERSION 1.0.1 - Bug Fixes & Improvements (TEMPLATE)
+
+IMPROVEMENTS:
+• Enhanced photo upload speed
+• Improved location accuracy
+• Better notification handling
+• UI polish and refinements
+
+BUG FIXES:
+• Fixed crash on report submission
+• Resolved image upload issues
+• Fixed location permission handling
+• Improved app stability
+
+Thank you for your feedback and support!
+
+---
+
+VERSION 1.1.0 - New Features (TEMPLATE)
+
+NEW FEATURES:
+• [Feature 1]
+• [Feature 2]
+• [Feature 3]
+
+IMPROVEMENTS:
+• [Improvement 1]
+• [Improvement 2]
+
+BUG FIXES:
+• [Bug fix 1]
+• [Bug fix 2]
+
+Thank you for using Boloo!
+
+---
+
+WHAT'S NEW GUIDELINES:
+
+Keep release notes:
+✓ Short and scannable
+✓ User-focused (not technical)
+✓ Positive and friendly
+✓ Highlight value to users
+✓ Under 4000 characters
+✓ Use bullet points
+✓ Group by type (New, Improved, Fixed)
+
+Avoid:
+✗ Technical jargon
+✗ Internal terminology
+✗ Bug tracking IDs
+✗ Too much detail
+✗ Negative language

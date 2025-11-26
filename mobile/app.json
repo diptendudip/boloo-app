@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Boloo - Citizen Reporting",
+    "slug": "boloo-citizen",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#2563eb"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2563eb"
+      },
+      "package": "com.boloo.citizen",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "jsEngine": "hermes",
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "fonts": [
+      "./assets/fonts/NotoSansDevanagari-Regular.ttf",
+      "./assets/fonts/NotoSansDevanagari-Medium.ttf",
+      "./assets/fonts/NotoSansDevanagari-SemiBold.ttf",
+      "./assets/fonts/NotoSansDevanagari-Bold.ttf"
+    ],
+    "extra": {
+      "apiUrl": "https://boloo-backend-api.azurewebsites.net"
+    },
+    "platforms": ["android", "web"],
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Boloo to use your location to tag grievance reports."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Boloo to access photos for grievance evidence.",
+          "cameraPermission": "Allow Boloo to take photos for grievance evidence."
+        }
+      ],
+      "expo-font"
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "default": [
+    {
+      "key": "mvp/deployment-complete",
+      "value": "{\"status\":\"complete\",\"timestamp\":\"2025-11-21\",\"webapp\":\"boloo-backend-app\",\"resource_group\":\"cgnet-mvp-rg\",\"url\":\"https://boloo-backend-app.azurewebsites.net\",\"services\":[\"auth\",\"conversation\",\"cases\",\"audio\",\"database\"],\"ready_for\":\"mobile_app_integration\"}",
+      "namespace": "default",
+      "timestamp": 1763759145760,
+      "redacted": false
+    },
+    {
+      "key": "monitoring/setup",
+      "value": "{\"status\":\"configured\",\"application_insights\":{\"name\":\"boloo-backend-insights\",\"instrumentation_key\":\"33aad16e-9560-4cf8-8ced-b42fde933cf2\",\"application_id\":\"e695fd11-449b-42fb-b440-91ac421d883a\",\"location\":\"southindia\",\"retention_days\":90},\"logging\":{\"web_server\":\"enabled\",\"retention_days\":3,\"max_size_mb\":100},\"alerts\":[\"boloo-http-5xx-errors\",\"boloo-high-response-time\",\"boloo-high-cpu\"],\"issues\":[\"app_using_default\",\"venv_not_found\",\"api_404_errors\"],\"portal_url\":\"https://portal.azure.com/#@/resource/subscriptions/417b3ad6-5fc1-47a3-917d-21cf4e3eddfc/resourceGroups/boloo-production-rg/providers/microsoft.insights/components/boloo-backend-insights/overview\"}",
+      "namespace": "default",
+      "timestamp": 1763759548658,
+      "redacted": false
+    }
+  ]
+}

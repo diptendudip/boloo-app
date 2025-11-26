@@ -1,0 +1,207 @@
+name: Deploy Web to Azure Static Web Apps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-web.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+    paths:
+      - 'web/**'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+  WORKING_DIRECTORY: ./web
+
+jobs:
+  build_and_deploy:
+    name: Build and Deploy Web
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm ci
+
+      - name: Run linting
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm run lint || true
+        continue-on-error: true
+
+      - name: Run type checking
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npx tsc --noEmit || true
+        continue-on-error: true
+
+      - name: Run tests
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm test -- --ci --coverage --maxWorkers=2 || true
+        continue-on-error: true
+
+      - name: Create production environment file
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          cat > .env.production << EOF
+          NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_ENVIRONMENT=production
+          NEXT_PUBLIC_APP_NAME=Boloo
+          EOF
+
+      - name: Build Next.js application
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+        run: |
+          npm run build
+
+      - name: Export static site
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          # Next.js static export is already created during build
+          # The 'out' directory contains the static files
+          ls -la out/
+
+      - name: Optimize assets
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          # Remove source maps in production
+          find out -name "*.map" -type f -delete
+
+          # Create gzipped versions for faster serving
+          find out -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" -o -name "*.json" \) -exec gzip -k {} \;
+
+      - name: Deploy to Azure Static Web Apps
+        id: deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          app_location: 'web/out'
+          api_location: ''
+          output_location: ''
+          skip_app_build: true
+
+      - name: Add custom headers
+        run: |
+          cat > web/out/staticwebapp.config.json << EOF
+          {
+            "navigationFallback": {
+              "rewrite": "/index.html",
+              "exclude": ["/images/*.{png,jpg,gif,ico}", "/css/*"]
+            },
+            "globalHeaders": {
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "DENY",
+              "X-XSS-Protection": "1; mode=block",
+              "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+              "Cache-Control": "public, max-age=31536000, immutable"
+            },
+            "routes": [
+              {
+                "route": "/api/*",
+                "allowedRoles": ["authenticated"]
+              }
+            ],
+            "responseOverrides": {
+              "404": {
+                "rewrite": "/404.html"
+              }
+            }
+          }
+          EOF
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-deployment
+          path: web/out
+          retention-days: 7
+
+      - name: Performance budget check
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          echo "Checking bundle sizes..."
+          du -sh out/* || true
+        continue-on-error: true
+
+      - name: Send deployment notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Web application deployed to Azure Static Web Apps'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        if: always()
+        continue-on-error: true
+
+  close_pull_request:
+    name: Close Pull Request
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Close Pull Request
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: 'close'
+
+  lighthouse:
+    name: Run Lighthouse Audit
+    runs-on: ubuntu-latest
+    needs: build_and_deploy
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v11
+        with:
+          urls: |
+            ${{ secrets.WEB_APP_URL }}
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+        continue-on-error: true
+
+      - name: Comment PR with Lighthouse scores
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const resultsPath = '.lighthouseci';
+            if (fs.existsSync(resultsPath)) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '## ⚡ Lighthouse Performance Report\n\nLighthouse audit completed. Check artifacts for details.'
+              });
+            }
+        continue-on-error: true

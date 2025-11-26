@@ -1,0 +1,97 @@
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+tests/
+*.test
+coverage.xml
+*.cover
+
+# Documentation
+docs/
+*.md
+!README.md
+examples/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Version Control
+.git/
+.gitignore
+.gitattributes
+
+# Environment & Config
+.env
+.env.*
+!.env.example
+venv/
+env/
+ENV/
+
+# Logs
+*.log
+logs/
+LogFiles/
+
+# Development files
+.python_packages/
+.swarm/
+.claude-flow/
+.deployment
+
+# Data files (large datasets)
+data/lgd/*.csv
+data/lgd/*.xls
+data/lgd/*.xlsx
+data/lgd/*.7z
+data/lgd/*.zip
+data/test/
+data/samples/
+
+# Uploads (should be in external storage)
+uploads/
+temp/
+tmp/
+
+# Azure & Cloud specific
+local.settings.json
+.azure/
+.azuredevops/
+
+# Misc
+*.bak
+*.tmp
+.cache/

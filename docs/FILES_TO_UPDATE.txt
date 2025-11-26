@@ -1,0 +1,113 @@
+DOCUMENTATION FIX - FILES TO UPDATE
+Generated: November 22, 2025
+
+Total Files: 15
+Total References: 226
+
+PRIORITY ORDER (by reference count):
+=====================================
+
+CRITICAL - Must Fix First
+--------------------------
+[88 refs] /Users/diptendu/boloo app/boloo-app/backend/docs/MVP_DEPLOYMENT_COMPLETE.md
+
+HIGH PRIORITY
+-------------
+[28 refs] /Users/diptendu/boloo app/boloo-app/PARALLEL_DEPLOYMENT_COMPLETE.md
+[25 refs] /Users/diptendu/boloo app/boloo-app/docs/AZURE_DEPLOYMENT_SUCCESS.md
+
+MEDIUM PRIORITY
+---------------
+[12 refs] /Users/diptendu/boloo app/boloo-app/docs/PRODUCTION_WORKFLOW_GUIDE.md
+[ 8 refs] /Users/diptendu/boloo app/boloo-app/docs/CLOUD_DEPLOYMENT_TEST_REPORT.md
+[ 5 refs] /Users/diptendu/boloo app/boloo-app/QUICK_RECOVERY.md
+[ 4 refs] /Users/diptendu/boloo app/boloo-app/docs/QUICK_START_GUIDE.md
+[ 4 refs] /Users/diptendu/boloo app/boloo-app/mobile/docs/DEPLOYMENT_GUIDE.md
+
+LOW PRIORITY
+------------
+[ 2 refs] /Users/diptendu/boloo app/boloo-app/docs/AZURE_AI_INTEGRATION.md
+[ 2 refs] /Users/diptendu/boloo app/boloo-app/mobile/DEPLOYMENT_SETUP_COMPLETE.md
+[ 1 ref ] /Users/diptendu/boloo app/boloo-app/mobile/NEXT_STEPS.md
+[ 1 ref ] /Users/diptendu/boloo app/boloo-app/mobile/docs/BUILD_CHECKLIST.md
+[ 1 ref ] /Users/diptendu/boloo app/boloo-app/mobile/docs/QUICK_START.md
+[ 1 ref ] /Users/diptendu/boloo app/boloo-app/docs/TWILIO_SETUP_GUIDE.md
+[ ? refs] /Users/diptendu/boloo app/boloo-app/mobile/docs/CONFIGURATION_SUMMARY.md
+
+
+SEARCH PATTERNS TO REPLACE
+===========================
+
+Pattern 1: Resource Group
+--------------------------
+Find:    cgnet-mvp-rg
+Replace: boloo-production-rg
+Count:   78 instances
+
+Pattern 2: Backend API Service
+-------------------------------
+Find:    boloo-backend-app
+Replace: boloo-backend-api
+Count:   126 instances
+
+Pattern 3: Database Server
+---------------------------
+Find:    boloo-db-server
+Replace: boloo-database
+Count:   15 instances
+
+Pattern 4: Storage Account
+---------------------------
+Find:    bolooaudiostorage
+Replace: boloostore2025
+Count:   7 instances
+
+
+VERIFICATION COMMANDS
+=====================
+
+After all updates, run these commands to verify:
+
+cd "/Users/diptendu/boloo app/boloo-app"
+
+# Should return 0 for each:
+grep -r "cgnet-mvp-rg" . --include="*.md" | grep -v node_modules | wc -l
+grep -r "boloo-backend-app" . --include="*.md" | grep -v node_modules | wc -l
+grep -r "boloo-db-server" . --include="*.md" | grep -v node_modules | wc -l
+grep -r "bolooaudiostorage" . --include="*.md" | grep -v node_modules | wc -l
+
+
+PARALLEL EXECUTION STRATEGY
+============================
+
+Agent 1 (Backend Docs):
+  - backend/docs/MVP_DEPLOYMENT_COMPLETE.md
+
+Agent 2 (Deployment Summaries):
+  - PARALLEL_DEPLOYMENT_COMPLETE.md
+  - QUICK_RECOVERY.md
+
+Agent 3 (Cloud Infrastructure):
+  - docs/AZURE_DEPLOYMENT_SUCCESS.md
+  - docs/AZURE_AI_INTEGRATION.md
+  - docs/CLOUD_DEPLOYMENT_TEST_REPORT.md
+  - docs/PRODUCTION_WORKFLOW_GUIDE.md
+  - docs/QUICK_START_GUIDE.md
+  - docs/TWILIO_SETUP_GUIDE.md
+
+Agent 4 (Mobile Documentation):
+  - mobile/DEPLOYMENT_SETUP_COMPLETE.md
+  - mobile/NEXT_STEPS.md
+  - mobile/docs/BUILD_CHECKLIST.md
+  - mobile/docs/DEPLOYMENT_GUIDE.md
+  - mobile/docs/QUICK_START.md
+  - mobile/docs/CONFIGURATION_SUMMARY.md
+
+Agent 5 (Verification):
+  - Run grep verification commands
+  - Create completion report
+  - Verify URLs and commands work
+
+
+END OF FILE LIST
+================

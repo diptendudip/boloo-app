@@ -1,0 +1,398 @@
+name: Production Deployment with Safety Checks
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      skip_validation:
+        description: 'Skip validation (emergency only)'
+        required: false
+        default: 'false'
+
+env:
+  AZURE_RESOURCE_GROUP: boloo-production-rg
+  BACKEND_APP_NAME: boloo-backend-api
+  FRONTEND_APP_NAME: www.bultoo.com
+  BACKEND_URL: https://boloo-backend-api.azurewebsites.net
+  FRONTEND_URL: https://www.bultoo.com
+
+jobs:
+  pre-deployment-checks:
+    name: Pre-Deployment Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: ./backend
+        run: |
+          python -m pytest tests/ -v
+
+      - name: Security scan
+        working-directory: ./backend
+        run: |
+          pip install safety
+          safety check --json
+
+      - name: Lint code
+        working-directory: ./backend
+        run: |
+          pip install flake8
+          flake8 app/ --max-line-length=120 --ignore=E501,W503
+
+  deploy-backend:
+    name: Deploy Backend to Azure
+    needs: pre-deployment-checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create deployment package
+        working-directory: ./backend
+        run: |
+          # Create deploy.zip
+          zip -r deploy.zip \
+            app/ \
+            alembic/ \
+            requirements.txt \
+            Dockerfile \
+            .dockerignore \
+            -x "*.pyc" -x "__pycache__/*" -x "tests/*"
+
+          ls -lh deploy.zip
+
+      - name: Deploy to Azure App Service
+        run: |
+          az webapp deployment source config-zip \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.BACKEND_APP_NAME }} \
+            --src ./backend/deploy.zip
+
+      - name: Wait for deployment to propagate
+        run: sleep 60
+
+      - name: Restart App Service
+        run: |
+          echo "Restarting backend app service..."
+          az webapp restart \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.BACKEND_APP_NAME }}
+
+      - name: Wait for app to be ready
+        run: sleep 30
+
+      - name: Get deployment info
+        run: |
+          az webapp deployment list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.BACKEND_APP_NAME }} \
+            --query "[0]" -o json
+
+  smoke-tests:
+    name: Run Smoke Tests
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: chmod +x ./scripts/deployment/*.sh
+
+      - name: Run smoke tests
+        run: |
+          cd scripts/deployment
+          BACKEND_URL=${{ env.BACKEND_URL }} \
+          FRONTEND_URL=${{ env.FRONTEND_URL }} \
+          ./smoke-tests.sh
+
+      - name: Upload smoke test logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: smoke-test-logs
+          path: /tmp/smoke-test-*.log
+          retention-days: 7
+
+  validate-deployment:
+    name: Comprehensive Deployment Validation
+    needs: smoke-tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.skip_validation != 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Make scripts executable
+        run: chmod +x ./scripts/deployment/*.sh
+
+      - name: Run validation suite
+        run: |
+          cd scripts/deployment
+          BACKEND_URL=${{ env.BACKEND_URL }} \
+          FRONTEND_URL=${{ env.FRONTEND_URL }} \
+          RESOURCE_GROUP=${{ env.AZURE_RESOURCE_GROUP }} \
+          BACKEND_APP_NAME=${{ env.BACKEND_APP_NAME }} \
+          ./validate-deployment.sh
+
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: validation-logs
+          path: |
+            /tmp/deployment-validation-*.log
+            /tmp/deployment-metrics-*.json
+          retention-days: 7
+
+  rollback-on-failure:
+    name: Automated Rollback
+    needs: validate-deployment
+    runs-on: ubuntu-latest
+    if: failure() && github.event.inputs.skip_validation != 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Make scripts executable
+        run: chmod +x ./scripts/deployment/*.sh
+
+      - name: Trigger automatic rollback
+        run: |
+          cd scripts/deployment
+          AUTO_ROLLBACK=true \
+          RESOURCE_GROUP=${{ env.AZURE_RESOURCE_GROUP }} \
+          BACKEND_APP_NAME=${{ env.BACKEND_APP_NAME }} \
+          BACKEND_URL=${{ env.BACKEND_URL }} \
+          ./rollback.sh
+
+      - name: Upload rollback logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: rollback-logs
+          path: |
+            /tmp/rollback-*.log
+            /tmp/boloo-incidents/*.md
+          retention-days: 30
+
+      - name: Notify team of rollback
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '🚨 Boloo Production Deployment Failed - Rollback Triggered'
+          to: diptendudip@gmail.com
+          from: Boloo DevOps <noreply@boloo.com>
+          body: |
+            Production deployment to ${{ env.BACKEND_APP_NAME }} failed validation.
+
+            Automatic rollback has been triggered.
+
+            Deployment ID: ${{ github.sha }}
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Check rollback logs in workflow artifacts for details.
+
+  post-deployment-monitoring:
+    name: Post-Deployment Monitoring
+    needs: validate-deployment
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Monitor for 5 minutes
+        run: |
+          echo "Monitoring deployment for 5 minutes..."
+          for i in {1..10}; do
+            echo "Check $i/10..."
+
+            # Health check
+            response=$(curl -s -w "\n%{http_code}" ${{ env.BACKEND_URL }}/health || echo -e "\n000")
+            http_code=$(echo "$response" | tail -n 1)
+
+            if [ "$http_code" != "200" ]; then
+              echo "❌ Health check failed (HTTP $http_code)"
+              exit 1
+            fi
+
+            echo "✅ Health check passed"
+            sleep 30
+          done
+
+      - name: Notify team of successful deployment
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '✅ Boloo Production Deployment Successful'
+          to: diptendudip@gmail.com
+          from: Boloo DevOps <noreply@boloo.com>
+          body: |
+            Production deployment to ${{ env.BACKEND_APP_NAME }} completed successfully.
+
+            All validation checks passed.
+            5-minute post-deployment monitoring completed.
+
+            Deployment ID: ${{ github.sha }}
+            Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Backend URL: ${{ env.BACKEND_URL }}
+            Frontend URL: ${{ env.FRONTEND_URL }}
+
+  deploy-frontend:
+    name: Deploy Frontend to Azure Static Web Apps
+    needs: validate-deployment
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: ./mobile-web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./mobile-web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./mobile-web
+        env:
+          REACT_APP_BACKEND_URL: ${{ env.BACKEND_URL }}
+        run: npm run build
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          app_location: './mobile-web'
+          output_location: 'build'
+
+      - name: Test frontend availability
+        run: |
+          sleep 30
+          response=$(curl -s -w "\n%{http_code}" ${{ env.FRONTEND_URL }} || echo -e "\n000")
+          http_code=$(echo "$response" | tail -n 1)
+
+          if [ "$http_code" != "200" ]; then
+            echo "❌ Frontend not accessible (HTTP $http_code)"
+            exit 1
+          fi
+
+          echo "✅ Frontend accessible"
+
+  performance-baseline:
+    name: Record Performance Baseline
+    needs: [validate-deployment, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Apache Bench
+        run: sudo apt-get update && sudo apt-get install -y apache2-utils
+
+      - name: Run load test
+        run: |
+          echo "Running load test (100 requests, 10 concurrent)..."
+          ab -n 100 -c 10 -g loadtest.tsv ${{ env.BACKEND_URL }}/api/dropdown/states > loadtest-results.txt || true
+
+      - name: Parse results
+        run: |
+          if [ -f loadtest-results.txt ]; then
+            echo "=== Load Test Results ==="
+            cat loadtest-results.txt
+
+            # Extract key metrics
+            grep "Requests per second" loadtest-results.txt || true
+            grep "Time per request" loadtest-results.txt || true
+            grep "Failed requests" loadtest-results.txt || true
+          fi
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-baseline
+          path: loadtest-*.txt
+          retention-days: 30
+
+  create-deployment-tag:
+    name: Create Deployment Tag
+    needs: [validate-deployment, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create deployment tag
+        run: |
+          TAG_NAME="prod-$(date +'%Y%m%d-%H%M%S')"
+          git tag -a "$TAG_NAME" -m "Production deployment $TAG_NAME"
+          git push origin "$TAG_NAME"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

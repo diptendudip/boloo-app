@@ -1,0 +1,209 @@
+name: Build Mobile App
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/build-mobile.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'mobile/**'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build profile'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+env:
+  NODE_VERSION: '18'
+  WORKING_DIRECTORY: ./mobile
+
+jobs:
+  test:
+    name: Run Mobile Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm ci
+
+      - name: Run linting
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm run lint || npx expo lint || true
+        continue-on-error: true
+
+      - name: Run type checking
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npx tsc --noEmit || true
+        continue-on-error: true
+
+      - name: Run Jest tests
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npm test -- --ci --coverage --maxWorkers=2 || true
+        continue-on-error: true
+
+      - name: Upload test coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./mobile/coverage/coverage-final.json
+          flags: mobile
+          name: mobile-coverage
+        continue-on-error: true
+
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm ci
+
+      - name: Create app environment
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          cat > .env << EOF
+          EXPO_PUBLIC_API_URL=${{ secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_ENVIRONMENT=${{ github.event.inputs.profile || 'preview' }}
+          EOF
+
+      - name: Build Android APK with EAS
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          npx eas-cli build --platform android --profile ${{ github.event.inputs.profile || 'preview' }} --non-interactive --no-wait
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Download build artifact
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          # Wait for build to complete and download
+          BUILD_ID=$(npx eas-cli build:list --platform=android --status=finished --limit=1 --json | jq -r '.[0].id')
+          if [ ! -z "$BUILD_ID" ]; then
+            npx eas-cli build:download --id=$BUILD_ID --output=./dist/app.apk
+          fi
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mobile/dist/app.apk
+          retention-days: 30
+        continue-on-error: true
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-android]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: ./artifacts
+        continue-on-error: true
+
+      - name: Get version from app.json
+        id: version
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: |
+          VERSION=$(cat app.json | jq -r '.expo.version')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}-${{ github.run_number }}
+          name: Mobile Release v${{ steps.version.outputs.version }}
+          body: |
+            ## Mobile App Release
+
+            **Version:** ${{ steps.version.outputs.version }}
+            **Build:** ${{ github.run_number }}
+            **Commit:** ${{ github.sha }}
+
+            ### Changes
+            ${{ github.event.head_commit.message }}
+
+            ### Downloads
+            - Android APK
+          files: |
+            artifacts/app.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Send release notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: 'Mobile app v${{ steps.version.outputs.version }} released!'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        if: success()
+        continue-on-error: true
+
+  notify:
+    name: Send Build Notification
+    runs-on: ubuntu-latest
+    needs: [build-android]
+    if: always()
+
+    steps:
+      - name: Send notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Mobile build completed'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

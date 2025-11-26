@@ -1,0 +1,143 @@
+ALEMBIC MIGRATION CHAIN - VISUAL DIAGRAM
+=========================================
+
+Legend:
+  ──>  : Linear progression
+  ─┬─> : Branch point
+  ──┴─>: Merge point
+  [✅] : Verified and working
+  [🔧] : Fixed issue
+
+
+BASE LEVEL (No dependencies):
+┌─────────────────────────────┐
+│  001 (resource_health)      │ [✅]
+└─────────────────┬───────────┘
+                  │
+┌─────────────────────────────┐
+│  add_push_notifications     │ [✅]
+└─────────────────────────────┘
+
+
+BRANCHING STRUCTURE:
+                  001
+                   │
+        ┌──────────┴──────────┐
+        │                     │
+        v                     v
+      ┌───┐              ┌────────────┐
+      │002│              │202510311400│ [✅]
+      └─┬─┘              └──────┬─────┘
+        │                       │
+        │                       v
+        │                  ┌────────┐
+        │                  │  003   │ [🔧 FIXED]
+        │                  └────┬───┘
+        │                       │
+        └───────────┬───────────┘
+                    │
+              (MERGE POINT 1)
+                    v
+            ┌───────────────┐
+            │ 60c82f467cc2  │ [✅]
+            │ (merge_heads) │
+            └───────┬───────┘
+                    │
+                    v
+            ┌───────────────┐
+            │      004      │ [✅]
+            │ (feed_tables) │
+            └───────┬───────┘
+                    │
+        ┌───────────┴───────────┬────────────────────┐
+        │                       │                    │
+        v                       v                    v
+    ┌────────┐          ┌────────────┐      ┌─────────────────┐
+    │  004   │          │202510311400│      │add_push_notif...│
+    └────┬───┘          └──────┬─────┘      └────────┬────────┘
+         │                     │                     │
+         └─────────────────────┴─────────────────────┘
+                              │
+                      (MERGE POINT 2)
+                              v
+                    ┌──────────────────┐
+                    │  234fdd926f88    │ [✅]
+                    │ (merge_all...)   │
+                    └────────┬─────────┘
+                             │
+                             v
+                    ┌──────────────────┐
+                    │  96255f04f125    │ [✅]
+                    │ (ai_question...) │
+                    └────────┬─────────┘
+                             │
+                             v
+                    ┌──────────────────┐
+                    │  2324c72c4cf5    │ [✅] ← LOCATION COLUMNS
+                    │ (location...)    │
+                    └────────┬─────────┘
+                             │
+                             v
+                    ┌──────────────────┐
+                    │  6f8cc5330bbf    │ [✅]
+                    │ (lgd_integ...)   │
+                    └────────┬─────────┘
+                             │
+                             v
+                    ┌──────────────────┐
+                    │ add_conversation_│ [✅]
+                    │    metadata      │
+                    └────────┬─────────┘
+                             │
+                             v
+                    ┌──────────────────┐
+                    │       005        │ [✅]
+                    │ (otp_verif...)   │
+                    └────────┬─────────┘
+                             │
+                             v
+                    ┌──────────────────┐
+                    │       006        │ [✅] ← OTP PHONE (HEAD)
+                    │ (otp_phone...)   │
+                    └──────────────────┘
+
+
+MIGRATION ORDER (Upgrade Path):
+================================
+1.  001                           (resource_health_monitoring)
+2.  add_push_notifications        (push notifications)
+3.  002                           (update_user_phone_email)
+4.  202510311400                  (ai_coach_training)
+5.  003                           (reporter_personal_details) [FIXED]
+6.  60c82f467cc2                  (merge_heads)
+7.  004_add_feed_tables           (feed tables)
+8.  234fdd926f88                  (merge_all_features)
+9.  96255f04f125                  (ai_question_slot)
+10. 2324c72c4cf5                  (hierarchical_location) ★
+11. 6f8cc5330bbf                  (lgd_integration)
+12. add_conversation_metadata     (conversation_metadata)
+13. 005_add_otp_verification      (otp_verification)
+14. 006_add_phone_number_to_otp   (otp_phone) ★ HEAD
+
+
+CRITICAL MIGRATIONS FOR AZURE:
+===============================
+★ 2324c72c4cf5 - Adds location columns to users and cases tables
+★ 006_add_phone_number_to_otp - Adds phone_number to otps table
+
+
+VERIFICATION STATUS:
+====================
+✅ No circular references
+✅ Single head confirmed
+✅ All migrations properly linked
+✅ SQL generation successful
+✅ Ready for Azure deployment
+
+
+FIXED ISSUES:
+=============
+🔧 Migration 003: Changed down_revision from '60c82f467cc2' to '202510311400'
+   - Resolved circular reference
+   - Now properly branches from 202510311400
+   - Merges correctly at 60c82f467cc2
