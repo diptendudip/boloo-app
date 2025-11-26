@@ -61,6 +61,42 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Slot ID Mapping (Agent B output → SLOT_REGISTRY keys)
+# ============================================================================
+
+AGENT_B_SLOT_MAPPING: Dict[str, str] = {
+    # Agent B's slot names → SLOT_REGISTRY keys
+    "location_village": "location.village",
+    "location_landmark": "location.landmark",
+    "location_district": "location.district",
+    "location_block": "location.block",
+    "location_panchayat": "location.panchayat",
+    "problem_category": "problem.category",
+    "problem_description": "problem.description",
+    "issue_description": "problem.description",
+    "problem_duration": "problem.duration",
+    "duration": "problem.duration",
+    "contact_name": "reporter.name",
+    "contact_phone": "reporter.phone",
+    "reporter_name": "reporter.name",
+    "reporter_phone": "reporter.phone",
+    "phone": "reporter.phone",
+    "name": "reporter.name",
+    # Pass through already correct slot IDs
+    "location.village": "location.village",
+    "location.district": "location.district",
+    "location.block": "location.block",
+    "location.panchayat": "location.panchayat",
+    "location.landmark": "location.landmark",
+    "problem.category": "problem.category",
+    "problem.description": "problem.description",
+    "problem.duration": "problem.duration",
+    "reporter.name": "reporter.name",
+    "reporter.phone": "reporter.phone",
+}
+
+
+# ============================================================================
 # Result Models
 # ============================================================================
 
@@ -725,6 +761,7 @@ class MultiAgentOrchestrator:
         Update conversation state with extracted slots from Agent B's <meta>.
 
         Uses last-write-wins strategy to merge slot values into the report.
+        Handles slot ID mapping from Agent B format to SLOT_REGISTRY format.
 
         Args:
             state: ConversationState to update
@@ -732,14 +769,17 @@ class MultiAgentOrchestrator:
         """
         slots = meta_dict.get("slots", {})
 
-        for slot_id, value in slots.items():
+        for agent_b_slot_id, value in slots.items():
             if value is None or value == "null":
                 continue
+
+            # Map Agent B's slot ID to SLOT_REGISTRY slot ID
+            slot_id = AGENT_B_SLOT_MAPPING.get(agent_b_slot_id, agent_b_slot_id)
 
             # Get slot configuration
             slot_config = SLOT_REGISTRY.get(slot_id)
             if not slot_config:
-                logger.warning(f"Unknown slot ID: {slot_id}")
+                logger.warning(f"Unknown slot ID: {agent_b_slot_id} (mapped to: {slot_id})")
                 continue
 
             # Get target field path (e.g., "report.location.village")
@@ -751,7 +791,7 @@ class MultiAgentOrchestrator:
             # Mark slot as filled
             state.mark_slot_filled(slot_id)
 
-            logger.debug(f"Updated slot {slot_id} = {value}")
+            logger.info(f"✅ Updated slot {agent_b_slot_id} → {slot_id} = {value}")
 
     def _set_nested_field(self, obj: Any, field_path: str, value: Any) -> None:
         """

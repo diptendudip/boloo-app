@@ -270,7 +270,7 @@ def get_agent_c_user_prompt(
   - Frustration Level: {conversation_meta.get('frustration_level', 'low')}
   - User Wants Submit: {conversation_meta.get('user_wants_submit', False)}
   - Turn Count: {conversation_meta.get('turn_count', 0)}
-  - Problem Category: {report_dict.get('problem_category', 'not set')}
+  - Problem Category: {report_dict.get('problem', {}).get('category', 'not set')}
 
 **Question History (Recent):**
 {question_history_str}
@@ -280,10 +280,10 @@ Analyze the above information and decide the next action according to your polic
 
 **Consider:**
 1. Are minimum required fields present for submission?
-   - issue_description_raw: {bool(report_dict.get('issue_description_raw'))}
-   - problem_category: {bool(report_dict.get('problem_category'))}
-   - reporter_phone: {bool(report_dict.get('reporter_phone'))}
-   - location (village or district): {bool(report_dict.get('location_village') or report_dict.get('location_district'))}
+   - issue_description_raw: {bool(report_dict.get('problem', {}).get('description_raw'))}
+   - problem_category: {bool(report_dict.get('problem', {}).get('category'))}
+   - reporter_phone: {bool(report_dict.get('reporter', {}).get('phone'))}
+   - location (village or district): {bool(report_dict.get('location', {}).get('village') or report_dict.get('location', {}).get('district'))}
 
 2. What is the user's current state?
    - Frustration: {conversation_meta.get('frustration_level', 'low')}
