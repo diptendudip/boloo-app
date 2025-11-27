@@ -1,4 +1,4 @@
-name: Deploy Mobile Web App
+name: Deploy Mobile Web App (bultoo.com)
 
 on:
   push:
@@ -7,11 +7,16 @@ on:
     paths:
       - 'mobile/**'
   workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy even without changes'
+        required: false
+        default: 'false'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Deploy Boloo Mobile Web
+    name: Deploy Boloo Mobile Web to bultoo.com
 
     steps:
       - name: Checkout code
@@ -28,20 +33,22 @@ jobs:
         working-directory: ./mobile
         run: npm ci
 
-      - name: Build for web
+      - name: Build Expo Web
         working-directory: ./mobile
         env:
           EXPO_PUBLIC_API_URL: https://boloo-backend-api.azurewebsites.net
         run: |
-          npx expo export --platform web --output-dir web-build
+          npx expo export --platform web
+          echo "Build completed. Contents of dist/:"
+          ls -la dist/
 
-      - name: Deploy to Azure Static Web Apps
+      - name: Deploy to Azure Static Web Apps (bultoo.com)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_MOBILE_WEB_DEPLOYMENT_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "mobile/web-build"
+          app_location: "mobile/dist"
           skip_api_build: true
           skip_app_build: true
           output_location: ""

@@ -93,11 +93,22 @@ class ChatService {
    */
   async startConversation(userId: string, language: string = 'hi'): Promise<ChatStartResponse> {
     try {
+      // Get Bearer token for production authentication
+      const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      const headers: Record<string, string> = {};
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      } else {
+        console.warn('[ChatService] No auth token found for start - request may fail');
+      }
+
       const response = await axios.post(
         `${this.baseURL}/start`,
         null,
         {
-          params: { user_id: userId, language }
+          params: { user_id: userId, language },
+          headers
         }
       );
       return response.data;
@@ -200,10 +211,21 @@ class ChatService {
     userId: string
   ): Promise<ChatSummaryResponse> {
     try {
+      // Get Bearer token for production authentication
+      const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      const headers: Record<string, string> = {};
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      } else {
+        console.warn('[ChatService] No auth token found for summary - request may fail');
+      }
+
       const response = await axios.get(
         `${this.baseURL}/${conversationId}/summary`,
         {
-          params: { user_id: userId }
+          params: { user_id: userId },
+          headers
         }
       );
       return response.data;
@@ -221,6 +243,16 @@ class ChatService {
     userId: string
   ): Promise<ChatSubmitResponse> {
     try {
+      // Get Bearer token for production authentication
+      const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      const headers: Record<string, string> = {};
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      } else {
+        console.warn('[ChatService] No auth token found for submit - request may fail');
+      }
+
       const response = await axios.post(
         `${this.baseURL}/${conversationId}/submit`,
         null,
@@ -228,7 +260,8 @@ class ChatService {
           params: {
             user_id: userId,
             conversation_id: conversationId
-          }
+          },
+          headers
         }
       );
       return response.data;
