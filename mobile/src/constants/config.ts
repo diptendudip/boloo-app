@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 
-export const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:8000';
+// Production URL - used for web deployment (bultoo.com)
+export const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://boloo-backend-api.azurewebsites.net';
 export const API_BASE_URL = API_URL; // Alias for compatibility with different services
 
 export const COLORS = {

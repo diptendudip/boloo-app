@@ -67,23 +67,19 @@ export default function LoginScreen({ navigation }: Props) {
     try {
       const fullNumber = validation.formatted!; // +91XXXXXXXXXX
 
-      if (TESTING_MODE) {
-        // TESTING MODE: Skip real OTP for development
-        console.log('[Login] TESTING MODE: Bypassing MSG91, use OTP: 123456');
+      // Always call backend to create OTP record (backend handles demo account)
+      console.log('[Login] Requesting OTP for:', fullNumber);
+      await authService.requestOTP(fullNumber);
 
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-
+      if (TESTING_MODE && fullNumber === '+919999999999') {
+        // TESTING MODE with demo number: Show the fixed OTP
+        console.log('[Login] TESTING MODE with demo number, OTP: 123456');
         Alert.alert(
-          'Testing Mode',
-          'OTP: 123456\n\nIn production, you will receive an SMS',
+          'Demo Mode',
+          'OTP: 123456\n\nThis is a demo account for testing.',
           [{ text: 'OK' }]
         );
       } else {
-        // PRODUCTION MODE: Send real OTP via MSG91
-        console.log('[Login] Sending OTP to:', fullNumber);
-        await authService.requestOTP(fullNumber);
-
         Alert.alert(
           'OTP Sent',
           OTP_MESSAGES.OTP_SENT,

@@ -8,6 +8,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from typing import Optional
+from pydantic import BaseModel
+
 from app.database import get_db
 from app.models.user import User
 from app.services.training_service import get_training_service
@@ -16,6 +19,12 @@ from app.utils.auth import get_current_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/users", tags=["users"])
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Request model for profile updates"""
+    name: Optional[str] = None
+    email: Optional[str] = None
 
 
 @router.get("/me")
@@ -34,7 +43,69 @@ async def get_current_user_profile(
     Use case: Display user profile with location in mobile app settings.
     This location will be used automatically for reports unless user overrides.
     """
-    return current_user.to_dict()
+    # Return with flat location fields for frontend compatibility
+    user_dict = current_user.to_dict()
+    # Add flat location fields that frontend expects
+    user_dict["location_street"] = current_user.location_street
+    user_dict["location_village"] = current_user.location_village
+    user_dict["location_panchayat"] = current_user.location_panchayat
+    user_dict["location_block"] = current_user.location_block
+    user_dict["location_subdivision"] = current_user.location_subdivision
+    user_dict["location_district"] = current_user.location_district
+    user_dict["location_state"] = current_user.location_state
+    user_dict["location_lat"] = current_user.location_lat
+    user_dict["location_lng"] = current_user.location_lng
+    user_dict["location_formatted_address"] = current_user.location_formatted_address
+    return user_dict
+
+
+@router.put("/me")
+async def update_current_user_profile(
+    update_data: ProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Update current user's profile (name, email).
+
+    Use case: User edits their name in profile settings.
+    """
+    try:
+        # Update name if provided
+        if update_data.name is not None:
+            current_user.name = update_data.name.strip()
+            logger.info(f"Updated name for user {current_user.id}: {current_user.name}")
+
+        # Update email if provided
+        if update_data.email is not None:
+            current_user.email = update_data.email.strip().lower()
+            logger.info(f"Updated email for user {current_user.id}: {current_user.email}")
+
+        db.commit()
+        db.refresh(current_user)
+
+        # Return updated profile with flat location fields
+        user_dict = current_user.to_dict()
+        user_dict["location_street"] = current_user.location_street
+        user_dict["location_village"] = current_user.location_village
+        user_dict["location_panchayat"] = current_user.location_panchayat
+        user_dict["location_block"] = current_user.location_block
+        user_dict["location_subdivision"] = current_user.location_subdivision
+        user_dict["location_district"] = current_user.location_district
+        user_dict["location_state"] = current_user.location_state
+        user_dict["location_lat"] = current_user.location_lat
+        user_dict["location_lng"] = current_user.location_lng
+        user_dict["location_formatted_address"] = current_user.location_formatted_address
+
+        return user_dict
+
+    except Exception as e:
+        logger.error(f"Error updating user profile: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update profile: {str(e)}"
+        )
 
 
 @router.get("/{user_id}/training-progress")

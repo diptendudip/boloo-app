@@ -1,0 +1,147 @@
+================================================================================
+  BOLOO SETUP - STEP BY STEP INSTRUCTIONS
+================================================================================
+
+IMPORTANT: Follow these steps IN ORDER!
+
+================================================================================
+STEP 1: START DOCKER DESKTOP
+================================================================================
+
+1. Open Finder → Applications folder
+2. Find "Docker" and double-click to open it
+3. Wait for Docker to fully start (whale icon in menu bar, top-right)
+4. The whale icon should be steady (not animated/warning)
+
+WAIT until Docker is ready before continuing!
+
+================================================================================
+STEP 2: OPEN TERMINAL AND NAVIGATE TO PROJECT
+================================================================================
+
+Open Terminal (Command + Space, type "Terminal", press Enter)
+
+Then run:
+
+    cd "/Users/diptendu/boloo app/boloo-app"
+
+NOTE: The quotes are important because of the space in "boloo app"!
+
+================================================================================
+STEP 3: RUN THE SETUP SCRIPT
+================================================================================
+
+Run this command:
+
+    ./first-run.sh
+
+This will:
+- Check Docker is running
+- Start PostgreSQL, Redis, MinIO
+- Install Python dependencies
+- Create database tables
+- Load seed data (131 entities + 50+ issue types)
+- Start backend API on port 8000 (daemon mode)
+- Start web admin console on port 3000 (daemon mode)
+
+WAIT 5-10 minutes for first-time installation.
+
+================================================================================
+STEP 4: VERIFY EVERYTHING IS RUNNING
+================================================================================
+
+Check services:
+
+    pm2 status
+
+You should see:
+- boloo-backend (online)
+- boloo-web (online)
+
+Check Docker:
+
+    docker-compose ps
+
+You should see:
+- postgres (Up)
+- redis (Up)
+- minio (Up)
+
+================================================================================
+STEP 5: OPEN WEB CONSOLE
+================================================================================
+
+Open your web browser and go to:
+
+    http://localhost:3000
+
+You should see the Boloo Admin Dashboard!
+
+================================================================================
+STEP 6: TEST MONITORING DASHBOARD
+================================================================================
+
+In your browser, go to:
+
+    http://localhost:3000/monitoring
+
+You should see:
+✅ Green status indicators for all services
+✅ Auto-refresh countdown (60 seconds)
+✅ Infrastructure status (PostgreSQL, Redis, MinIO)
+✅ External services status
+✅ API endpoints table
+
+WATCH IT AUTO-REFRESH EVERY 60 SECONDS!
+
+================================================================================
+IF YOU HAVE PROBLEMS
+================================================================================
+
+Problem: Docker not running
+Solution: Make sure Docker Desktop app is open and running
+
+Problem: Port 8000 already in use
+Solution: Run: lsof -ti:8000 | xargs kill -9
+
+Problem: Port 3000 already in use
+Solution: Run: lsof -ti:3000 | xargs kill -9
+
+Problem: Services not starting
+Solution: Check logs with: pm2 logs
+
+Problem: Can't find first-run.sh
+Solution: Make sure you're in the right directory:
+    cd "/Users/diptendu/boloo app/boloo-app"
+
+================================================================================
+STOPPING SERVICES (when done)
+================================================================================
+
+To stop everything:
+
+    pm2 stop all
+    docker-compose down
+
+================================================================================
+RESTARTING LATER
+================================================================================
+
+After first-time setup, just run:
+
+    ./first-run.sh
+
+Or use the full restart script:
+
+    ./restart.sh
+
+================================================================================
+MORE HELP
+================================================================================
+
+See these files for more details:
+- START_HERE.md - Detailed startup guide
+- QUICK_START.md - Quick reference
+- WEB_COMPLETE.md - Web console features
+
+================================================================================

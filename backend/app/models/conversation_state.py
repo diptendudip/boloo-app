@@ -472,6 +472,27 @@ SLOT_REGISTRY: Dict[str, Dict] = {
         "max_attempts": 1,
         "description": "Nearby landmark"
     },
+    "location.panchayat": {
+        "target_field": "report.location.panchayat",
+        "priority": SlotPriority.IMPORTANT,
+        "required": False,
+        "max_attempts": 2,
+        "description": "Panchayat name"
+    },
+    "location.block": {
+        "target_field": "report.location.block",
+        "priority": SlotPriority.IMPORTANT,
+        "required": False,
+        "max_attempts": 2,
+        "description": "Block/Tehsil name"
+    },
+    "location.state": {
+        "target_field": "report.location.state",
+        "priority": SlotPriority.IMPORTANT,
+        "required": False,
+        "max_attempts": 2,
+        "description": "State name"
+    },
 
     # Problem slots
     "problem.category": {

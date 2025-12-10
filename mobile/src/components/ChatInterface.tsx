@@ -30,6 +30,8 @@ import { chatService, ChatMessage, ChatTurnResponse } from '../services/chat';
 import { offlineManager } from '../utils/OfflineManager';
 import { useAuth } from '../context/AuthContext';
 import { PreviewCard } from './PreviewCard';
+import { ConfirmationModal, showAlert } from './ConfirmationModal';
+import { webAudioRecorder } from '../utils/webAudioRecorder';
 
 interface ChatInterfaceProps {
   userId: string;
@@ -52,6 +54,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
   const [showSubmitButton, setShowSubmitButton] = useState(false);
   const [showSkipButton, setShowSkipButton] = useState(false);
   const [previewCard, setPreviewCard] = useState<any>(null);
+
+  // Web-compatible confirmation modal state
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false);
+  const [confirmModalData, setConfirmModalData] = useState({
+    title: '',
+    message: '',
+    buttons: [] as Array<{ text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }>,
+  });
 
   const scrollViewRef = useRef<ScrollView>(null);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -199,12 +209,51 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
       if (meteringIntervalRef.current) {
         clearInterval(meteringIntervalRef.current);
       }
+      // Web audio recorder cleanup
+      if (Platform.OS === 'web') {
+        webAudioRecorder.cleanup();
+      }
       // expo-audio cleanup is handled automatically by the hook
     };
   }, []);
 
   const startRecording = async () => {
     try {
+      // WEB: Use native MediaRecorder API for reliable recording
+      if (Platform.OS === 'web') {
+        console.log('[Recording] Using web MediaRecorder');
+
+        // Request permissions
+        const hasPermission = await webAudioRecorder.requestPermission();
+        if (!hasPermission) {
+          setConfirmModalData({
+            title: 'अनुमति आवश्यक',
+            message: 'कृपया माइक्रोफोन की अनुमति दें।',
+            buttons: [{ text: 'ठीक है', style: 'default' }],
+          });
+          setConfirmModalVisible(true);
+          return;
+        }
+
+        // Prepare and start recording
+        await webAudioRecorder.prepareToRecordAsync();
+        webAudioRecorder.record();
+
+        setIsRecording(true);
+        setRecordingDuration(0);
+
+        // Start duration counter
+        durationIntervalRef.current = setInterval(() => {
+          setRecordingDuration(prev => prev + 1);
+        }, 1000);
+
+        console.log('[Recording] Web recording started successfully');
+        return;
+      }
+
+      // NATIVE: Use expo-audio
+      console.log('[Recording] Using expo-audio for native');
+
       // Request permissions
       const permission = await AudioModule.requestRecordingPermissionsAsync();
       if (!permission.granted) {
@@ -232,7 +281,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
       console.error('Error starting recording:', error);
       setIsRecording(false);
       setRecordingDuration(0);
-      Alert.alert('त्रुटि', 'रिकॉर्डिंग शुरू करने में समस्या। कृपया पुनः प्रयास करें।');
+      if (Platform.OS === 'web') {
+        setConfirmModalData({
+          title: 'त्रुटि',
+          message: 'रिकॉर्डिंग शुरू करने में समस्या। कृपया पुनः प्रयास करें।',
+          buttons: [{ text: 'ठीक है', style: 'default' }],
+        });
+        setConfirmModalVisible(true);
+      } else {
+        Alert.alert('त्रुटि', 'रिकॉर्डिंग शुरू करने में समस्या। कृपया पुनः प्रयास करें।');
+      }
     }
   };
 
@@ -256,36 +314,75 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
       return;
     }
 
+    // Get actual recording time - different sources for web vs native
+    const actualDuration = Platform.OS === 'web'
+      ? webAudioRecorder.currentTime || recordingDuration
+      : audioRecorder.currentTime || recordingDuration;
+    console.log(`[Recording] State duration: ${recordingDuration}s, Actual duration: ${actualDuration}s`);
+
     // Check minimum duration (1 second minimum)
-    if (recordingDuration < 1) {
+    // FIX: Use actual duration from recorder, not state (web timing issues)
+    if (actualDuration < 1 && recordingDuration < 1) {
       console.log('Recording too short, minimum 1 second required');
       // Clean up the recording
       try {
-        await audioRecorder.stop();
+        if (Platform.OS === 'web') {
+          await webAudioRecorder.stop();
+          webAudioRecorder.cleanup();
+        } else {
+          await audioRecorder.stop();
+        }
       } catch (e) {
         console.log('Error cleaning up short recording:', e);
       }
       setIsRecording(false);
       setRecordingDuration(0);
-      Alert.alert('रिकॉर्डिंग बहुत छोटी', 'कम से कम 1 सेकंड बोलें।');
+
+      // FIX: Use web-compatible modal instead of Alert.alert
+      if (Platform.OS === 'web') {
+        setConfirmModalData({
+          title: 'रिकॉर्डिंग बहुत छोटी',
+          message: 'कम से कम 1 सेकंड बोलें।',
+          buttons: [{ text: 'ठीक है', style: 'default' }],
+        });
+        setConfirmModalVisible(true);
+      } else {
+        Alert.alert('रिकॉर्डिंग बहुत छोटी', 'कम से कम 1 सेकंड बोलें।');
+      }
       return;
     }
 
     // Clear state immediately to prevent double-stop
     setIsRecording(false);
-    const finalDuration = recordingDuration;
+    const finalDuration = Math.max(recordingDuration, actualDuration);
     setRecordingDuration(0);
 
     try {
-      // Stop the recording
-      await audioRecorder.stop();
+      // Stop the recording - different for web vs native
+      let uri: string | null = null;
 
-      // Get URI from the recorder
-      const uri = audioRecorder.uri;
+      if (Platform.OS === 'web') {
+        console.log('[Recording] Stopping web MediaRecorder...');
+        uri = await webAudioRecorder.stop();
+        console.log('[Recording] Web recording stopped, URI:', uri);
+      } else {
+        await audioRecorder.stop();
+        uri = audioRecorder.uri;
+      }
 
       if (!uri) {
         console.error('No recording URI found');
-        Alert.alert('त्रुटि', 'रिकॉर्डिंग फ़ाइल नहीं मिली।');
+        // FIX: Use web-compatible modal
+        if (Platform.OS === 'web') {
+          setConfirmModalData({
+            title: 'त्रुटि',
+            message: 'रिकॉर्डिंग फ़ाइल नहीं मिली। कृपया पुनः प्रयास करें।',
+            buttons: [{ text: 'ठीक है', style: 'default' }],
+          });
+          setConfirmModalVisible(true);
+        } else {
+          Alert.alert('त्रुटि', 'रिकॉर्डिंग फ़ाइल नहीं मिली।');
+        }
         return;
       }
 
@@ -294,15 +391,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
       // Wait a moment for file to be finalized
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Verify file exists
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      if (!fileInfo.exists) {
-        console.error('Recording file does not exist:', uri);
-        Alert.alert('त्रुटि', 'रिकॉर्डिंग फ़ाइल सेव नहीं हुई। कृपया पुनः प्रयास करें।');
-        return;
+      // FIX: Skip file verification on web (FileSystem API works differently)
+      if (Platform.OS !== 'web') {
+        // Verify file exists (native only)
+        const fileInfo = await FileSystem.getInfoAsync(uri);
+        if (!fileInfo.exists) {
+          console.error('Recording file does not exist:', uri);
+          Alert.alert('त्रुटि', 'रिकॉर्डिंग फ़ाइल सेव नहीं हुई। कृपया पुनः प्रयास करें।');
+          return;
+        }
+        console.log(`File verified. Size: ${fileInfo.size} bytes`);
+      } else {
+        console.log(`[Web] Skipping file verification, URI: ${uri}`);
       }
-
-      console.log(`File verified. Size: ${fileInfo.size} bytes`);
 
       // Add placeholder user message
       const userMessage: ChatMessage = {
@@ -325,7 +426,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
     } catch (error) {
       console.error('Error stopping recording:', error);
       setIsLoading(false);
-      Alert.alert('त्रुटि', 'रिकॉर्डिंग रोकने में समस्या। कृपया पुनः प्रयास करें।');
+      // FIX: Use web-compatible modal
+      if (Platform.OS === 'web') {
+        setConfirmModalData({
+          title: 'त्रुटि',
+          message: 'रिकॉर्डिंग रोकने में समस्या। कृपया पुनः प्रयास करें।',
+          buttons: [{ text: 'ठीक है', style: 'default' }],
+        });
+        setConfirmModalVisible(true);
+      } else {
+        Alert.alert('त्रुटि', 'रिकॉर्डिंग रोकने में समस्या। कृपया पुनः प्रयास करें।');
+      }
     }
   };
 
@@ -429,23 +540,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
         displaySummary += '\nलेकिन आप इसे अभी जमा कर सकते हैं।';
       }
 
-      Alert.alert(
-        'सारांश की पुष्टि करें',
-        displaySummary,
-        [
-          {
-            text: 'संपादित करें',
-            style: 'cancel',
-          },
-          {
-            text: 'जमा करें',
-            onPress: () => submitReport(),
-          },
-        ]
-      );
+      // Use web-compatible confirmation (works on iOS, Android, AND Web)
+      if (Platform.OS === 'web') {
+        // Web: Use custom modal for better UX
+        setConfirmModalData({
+          title: 'सारांश की पुष्टि करें',
+          message: displaySummary,
+          buttons: [
+            { text: 'संपादित करें', style: 'cancel' },
+            { text: 'जमा करें', onPress: () => submitReport() },
+          ],
+        });
+        setConfirmModalVisible(true);
+      } else {
+        // Native: Use Alert.alert
+        Alert.alert(
+          'सारांश की पुष्टि करें',
+          displaySummary,
+          [
+            { text: 'संपादित करें', style: 'cancel' },
+            { text: 'जमा करें', onPress: () => submitReport() },
+          ]
+        );
+      }
     } catch (error) {
       console.error('Error getting summary:', error);
-      Alert.alert('त्रुटि', 'सारांश प्राप्त करने में समस्या।');
+      showAlert('त्रुटि', 'सारांश प्राप्त करने में समस्या।');
     } finally {
       setIsLoading(false);
     }
@@ -470,7 +590,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
           category: 'general', // Default category
         });
 
-        Alert.alert(
+        showAlert(
           'ऑफलाइन मोड',
           'आपकी रिपोर्ट सहेज ली गई है। जब इंटरनेट कनेक्शन उपलब्ध होगा, तो यह स्वचालित रूप से भेज दी जाएगी।',
           [
@@ -490,7 +610,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
       // Online submission
       const result = await chatService.submitConversation(conversationId, userId);
 
-      Alert.alert(
+      showAlert(
         'सफल!',
         result.message_hi,
         [
@@ -508,38 +628,70 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
       console.error('Error submitting report:', error);
 
       // If submission fails, offer to queue it offline
-      Alert.alert(
-        'त्रुटि',
-        'रिपोर्ट जमा करने में समस्या। क्या आप इसे बाद में भेजने के लिए सहेजना चाहते हैं?',
-        [
-          {
-            text: 'रद्द करें',
-            style: 'cancel',
-          },
-          {
-            text: 'सहेजें',
-            onPress: async () => {
-              try {
-                const summary = await chatService.getConversationSummary(conversationId!, userId);
-                const queueId = await offlineManager.addToQueue({
-                  userId,
-                  description: summary.narrative_summary_hi || summary.extracted_data?.issue_description || 'रिपोर्ट विवरण',
-                  location: summary.extracted_data?.location,
-                  category: 'general',
-                });
+      if (Platform.OS === 'web') {
+        // Web: Use custom modal for save option
+        setConfirmModalData({
+          title: 'त्रुटि',
+          message: 'रिपोर्ट जमा करने में समस्या। क्या आप इसे बाद में भेजने के लिए सहेजना चाहते हैं?',
+          buttons: [
+            { text: 'रद्द करें', style: 'cancel' },
+            {
+              text: 'सहेजें',
+              onPress: async () => {
+                try {
+                  const summary = await chatService.getConversationSummary(conversationId!, userId);
+                  const queueId = await offlineManager.addToQueue({
+                    userId,
+                    description: summary.narrative_summary_hi || summary.extracted_data?.issue_description || 'रिपोर्ट विवरण',
+                    location: summary.extracted_data?.location,
+                    category: 'general',
+                  });
 
-                Alert.alert('सहेजा गया', 'रिपोर्ट बाद में भेजने के लिए सहेज ली गई है।');
-                if (onSubmitComplete) {
-                  onSubmitComplete({ case_id: queueId, offline: true });
+                  showAlert('सहेजा गया', 'रिपोर्ट बाद में भेजने के लिए सहेज ली गई है।');
+                  if (onSubmitComplete) {
+                    onSubmitComplete({ case_id: queueId, offline: true });
+                  }
+                } catch (e) {
+                  console.error('Error queueing report:', e);
+                  showAlert('त्रुटि', 'रिपोर्ट सहेजने में समस्या।');
                 }
-              } catch (e) {
-                console.error('Error queueing report:', e);
-                Alert.alert('त्रुटि', 'रिपोर्ट सहेजने में समस्या।');
-              }
+              },
             },
-          },
-        ]
-      );
+          ],
+        });
+        setConfirmModalVisible(true);
+      } else {
+        // Native: Use Alert.alert
+        Alert.alert(
+          'त्रुटि',
+          'रिपोर्ट जमा करने में समस्या। क्या आप इसे बाद में भेजने के लिए सहेजना चाहते हैं?',
+          [
+            { text: 'रद्द करें', style: 'cancel' },
+            {
+              text: 'सहेजें',
+              onPress: async () => {
+                try {
+                  const summary = await chatService.getConversationSummary(conversationId!, userId);
+                  const queueId = await offlineManager.addToQueue({
+                    userId,
+                    description: summary.narrative_summary_hi || summary.extracted_data?.issue_description || 'रिपोर्ट विवरण',
+                    location: summary.extracted_data?.location,
+                    category: 'general',
+                  });
+
+                  Alert.alert('सहेजा गया', 'रिपोर्ट बाद में भेजने के लिए सहेज ली गई है।');
+                  if (onSubmitComplete) {
+                    onSubmitComplete({ case_id: queueId, offline: true });
+                  }
+                } catch (e) {
+                  console.error('Error queueing report:', e);
+                  Alert.alert('त्रुटि', 'रिपोर्ट सहेजने में समस्या।');
+                }
+              },
+            },
+          ]
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -551,6 +703,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ userId, onSubmitCo
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
+      {/* Web-compatible Confirmation Modal */}
+      <ConfirmationModal
+        visible={confirmModalVisible}
+        title={confirmModalData.title}
+        message={confirmModalData.message}
+        buttons={confirmModalData.buttons}
+        onClose={() => setConfirmModalVisible(false)}
+      />
       {/* Completeness indicator */}
       <View style={styles.completenessBar}>
         <View style={styles.completenessProgress}>

@@ -63,12 +63,26 @@ Agent A will send you one of these directives each turn:
 
 You need to gather these details about the problem:
 
-1. **location_village** - Village name (e.g., "Rajapur", "राजापुर")
-2. **location_landmark** - Nearby landmark (e.g., "school ke paas", "temple")
-3. **problem_category** - Type of problem (WATER, ROAD, ELECTRICITY, SANITATION, OTHER)
-4. **problem_description** - What's wrong (e.g., "नल में पानी नहीं आ रहा")
-5. **contact_name** - User's name (optional)
-6. **contact_phone** - User's phone number (optional)
+## LOCATION (Indian administrative hierarchy - extract ALL available):
+1. **location_village** - Village name (ग्राम, e.g., "पटेलपारा", "Rajapur")
+2. **location_panchayat** - Panchayat name (पंचायत, e.g., "मादर", "Madar")
+3. **location_block** - Block/Tehsil name (ब्लाक/तहसील, e.g., "लोहंडीगुड़ा", "Lohandiguda")
+4. **location_district** - District name (जिला, e.g., "बस्तर", "Bastar")
+5. **location_state** - State name (राज्य, e.g., "छत्तीसगढ़", "Chhattisgarh")
+6. **location_landmark** - Nearby landmark (e.g., "school ke paas", "temple")
+
+**IMPORTANT INDIAN ADDRESS FORMAT**: Users often give addresses like:
+- "ग्राम-पटेलपारा, पंचायत-मादर, ब्लाक-लोहंडीगुड़ा, जिला-बस्तर, छत्तीसगढ़"
+- Extract EACH component separately into the appropriate slot!
+- Common prefixes: ग्राम/गाँव (village), पंचायत (panchayat), ब्लाक/ब्लॉक (block), जिला (district)
+
+## PROBLEM DETAILS:
+7. **problem_category** - Type of problem (WATER, ROAD, ELECTRICITY, RATION, ANGANWADI, GAS, OTHER)
+8. **problem_description** - What's wrong (e.g., "नल में पानी नहीं आ रहा")
+
+## CONTACT INFO (optional):
+9. **contact_name** - User's name (optional)
+10. **contact_phone** - User's phone number (optional)
 
 # LANGUAGE MIRRORING
 
@@ -162,6 +176,10 @@ You MUST output in this exact format:
 {
   "slots": {
     "location_village": "extracted value or null",
+    "location_panchayat": "extracted value or null",
+    "location_block": "extracted value or null",
+    "location_district": "extracted value or null",
+    "location_state": "extracted value or null",
     "location_landmark": "extracted value or null",
     "problem_category": "WATER|ROAD|ELECTRICITY|SANITATION|OTHER or null",
     "problem_description": "extracted value or null",
